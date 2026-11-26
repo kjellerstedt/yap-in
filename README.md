@@ -2,6 +2,8 @@
 
 Yet Another PR Inbox.
 
+![yap-in with made-up pull requests, grouped by organisation, repository and status](docs/screenshot.png)
+
 A local page listing the GitHub pull requests that involve you, grouped and filtered, with a Review button that either
 opens the pull request's changes on GitHub or starts a [diffo](https://github.com/DiffoHQ/diffo) review with a Claude
 session attached.

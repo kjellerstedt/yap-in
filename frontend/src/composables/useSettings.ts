@@ -23,7 +23,7 @@ const SETTINGS_KEY = "yap-in:settings";
 const RELATIONS: readonly PullRequestRelation[] = ["authored", "review-you", "review-team", "reviewed", "assigned", "mentioned", "involved"];
 
 const DEFAULT_SETTINGS: Settings = {
-  groups: ["owner", "repo"],
+  groups: ["owner", "repo", "status"],
   sort: "updated",
   theme: "system",
   hideDrafts: false,

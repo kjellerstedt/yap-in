@@ -213,7 +213,7 @@ onBeforeUnmount(() => {
   </header>
   <main :class="{ dimmed: isSettingsOpen }">
     <section class="hero">
-      <h1>All the yapping from your pull requests<span class="dim">, in one place.</span></h1>
+      <h1>Yapping from your pull requests<span class="dim">, in one place.</span></h1>
       <p>{{ metaText }}</p>
       <StatusCards v-bind="countsByStatus" />
     </section>
