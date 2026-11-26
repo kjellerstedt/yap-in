@@ -24,6 +24,7 @@ export interface PullRequest {
   deletions: number;
   changedFiles: number;
   mergeable: string;
+  mergeStateStatus: string;
   reviewDecision: string | null;
   head: string;
   base: string;

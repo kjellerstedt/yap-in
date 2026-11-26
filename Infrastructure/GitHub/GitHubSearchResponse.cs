@@ -29,6 +29,7 @@ internal sealed record PullRequestNode(
     int Deletions,
     int ChangedFiles,
     string? Mergeable,
+    string? MergeStateStatus,
     string? ReviewDecision,
     string? HeadRefName,
     string? BaseRefName,

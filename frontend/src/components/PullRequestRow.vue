@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from "vue";
 import { aikidoTitle, botKind, dependabotTitle } from "../inbox/bots";
-import { changesRequestedReviews, isMyApprovalStale, isOwnPrAwaitingFeedback, status, STATUS_BADGE_CLASS } from "../inbox/status";
+import { changesRequestedReviews, isMyApprovalStale, isOwnPrAwaitingFeedback, staleApprovers, status, STATUS_BADGE_CLASS } from "../inbox/status";
 import { dayAndMonth, relativeTime } from "../inbox/time";
 import type { PullRequest } from "../inbox/types";
 import { useInboxContext } from "../composables/inboxContext";
@@ -55,9 +55,11 @@ const reviewSummary = computed(() => {
   const changesCount = changesRequestedReviews(props.pr).length;
   const requestedCount = props.pr.reviewRequests.length;
   if (approvedCount === 0 && changesCount === 0 && requestedCount === 0) return null;
+  const staleApproverLogins = staleApprovers(props.pr);
   const tooltip = [
     ...props.pr.reviews.map((review) => {
       const date = review.submittedAt ? ` · ${dayAndMonth(review.submittedAt)}` : "";
+      if (review.state === "APPROVED" && staleApproverLogins.includes(review.login)) return `✓ ${review.login} approved${date}, before the latest commits`;
       if (review.state === "APPROVED") return `✓ ${review.login} approved${date}`;
       if (review.state === "CHANGES_REQUESTED") return `✗ ${review.login} requested changes${date}`;
       return `${review.login} ${review.state.toLowerCase().replaceAll("_", " ")}${date}`;
@@ -65,7 +67,7 @@ const reviewSummary = computed(() => {
     ...props.pr.reviewRequests.map((reviewer) =>
       `⏳ ${reviewer.startsWith("team:") ? `${reviewer.slice("team:".length)} (team)` : reviewer} requested`),
   ].join("\n");
-  return { approvedCount, changesCount, requestedCount, tooltip };
+  return { approvedCount, changesCount, requestedCount, tooltip, hasStaleApproval: staleApproverLogins.length > 0 };
 });
 
 const copyLabel = ref("copy");
@@ -117,7 +119,7 @@ function toggleDone() {
         <span v-else><img v-if="avatarUrl" class="avatar" :src="avatarUrl" alt="">{{ pr.author }}</span>
         <span v-if="bot === null" class="mono branch" :title="`${pr.head} → ${pr.base}`">{{ pr.head }}</span>
         <span v-if="reviewSummary" v-tooltip="reviewSummary.tooltip" class="reviews" role="img">
-          <span v-if="reviewSummary.approvedCount" class="add">✓{{ reviewSummary.approvedCount }}</span>
+          <span v-if="reviewSummary.approvedCount" class="add" :class="{ stale: reviewSummary.hasStaleApproval }"><span class="check">✓</span>{{ reviewSummary.approvedCount }}</span>
           <span v-if="reviewSummary.changesCount" class="del"> ✗{{ reviewSummary.changesCount }}</span>
           <span v-if="reviewSummary.requestedCount">
             <svg class="meta-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 3h12M6 21h12M7 3v3.5l5 5.5 5-5.5V3M7 21v-3.5l5-5.5 5 5.5V21" /></svg>{{ reviewSummary.requestedCount }}

@@ -31,6 +31,7 @@ internal static class InboxMappings
         Deletions: pullRequest.Deletions,
         ChangedFiles: pullRequest.ChangedFiles,
         Mergeable: pullRequest.Mergeable,
+        MergeStateStatus: pullRequest.MergeStateStatus,
         ReviewDecision: pullRequest.ReviewDecision,
         Head: pullRequest.Head,
         Base: pullRequest.Base,

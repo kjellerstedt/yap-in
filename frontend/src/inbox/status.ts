@@ -54,8 +54,16 @@ export function status(pr: PullRequest): PullRequestStatus {
   if (pr.reviewDecision === "CHANGES_REQUESTED" && isApprovedAfterChangesRequested === false) return "Changes requested";
   if (pr.mergeable === "CONFLICTING") return "Merge conflict";
   if (pr.reviewDecision === "APPROVED") return "Approved";
+  if (isMergeableWithOutdatedApproval(pr)) return "Approved";
   if (isApprovedAfterChangesRequested) return "Approved after changes requested";
   return "Waiting for review";
+}
+
+// GitHub still asks for a review because the approval predates the newest commits, yet reports the PR as ready to merge
+// (the repo lets you through, e.g. an admin bypass). The outdated approval is required so that a PR nobody has
+// reviewed, in a repo without a review rule, is not called approved.
+function isMergeableWithOutdatedApproval(pr: PullRequest): boolean {
+  return pr.reviewDecision === "REVIEW_REQUIRED" && pr.mergeStateStatus === "CLEAN" && staleApprovers(pr).length > 0;
 }
 
 export function changesRequestedReviews(pr: PullRequest): PullRequest["reviews"] {
@@ -87,4 +95,13 @@ export function isOwnPrAwaitingFeedback(pr: PullRequest, viewer: string): boolea
 export function isMyApprovalStale(pr: PullRequest): boolean {
   return pr.myReview === "APPROVED" && pr.reviewDecision !== "APPROVED" &&
     pr.myReviewAt !== null && pr.lastCommitAt !== null && pr.lastCommitAt > pr.myReviewAt;
+}
+
+// Reviewers whose approval came before the newest commit while the PR is not approved overall. Unlike isMyApprovalStale
+// this covers every reviewer, so an author sees that the approval they were waiting on has stopped counting.
+export function staleApprovers(pr: PullRequest): string[] {
+  if (pr.state !== "OPEN" || pr.reviewDecision === "APPROVED" || pr.lastCommitAt === null) return [];
+  return pr.reviews
+    .filter((review) => review.state === "APPROVED" && review.submittedAt !== null && review.submittedAt < pr.lastCommitAt!)
+    .map((review) => review.login);
 }

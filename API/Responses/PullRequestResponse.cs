@@ -21,6 +21,7 @@ public sealed record PullRequestResponse(
     int Deletions,
     int ChangedFiles,
     string Mergeable,
+    string MergeStateStatus,
     string? ReviewDecision,
     string Head,
     string Base,

@@ -20,7 +20,7 @@ internal sealed partial class GitHubPullRequestSearch(IProcessRunner processRunn
     private const string PullRequestFields = """
         ... on PullRequest {
           id number title url isDraft state createdAt updatedAt mergedAt closedAt
-          additions deletions changedFiles mergeable reviewDecision
+          additions deletions changedFiles mergeable mergeStateStatus reviewDecision
           headRefName baseRefName
           author { login avatarUrl }
           repository { nameWithOwner name owner { login } isPrivate }
@@ -160,6 +160,7 @@ internal sealed partial class GitHubPullRequestSearch(IProcessRunner processRunn
             Deletions: node.Deletions,
             ChangedFiles: node.ChangedFiles,
             Mergeable: node.Mergeable ?? "UNKNOWN",
+            MergeStateStatus: node.MergeStateStatus ?? "UNKNOWN",
             ReviewDecision: node.ReviewDecision,
             Head: node.HeadRefName ?? "",
             Base: node.BaseRefName ?? "",

@@ -332,7 +332,9 @@
   .pr.aikido .botname::before {
     mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M7.47.22a.75.75 0 0 1 1.06 0c1.07 1.07 2.86 1.78 4.72 1.78a.75.75 0 0 1 .75.75V7c0 3.68-2.27 6.96-5.75 8.73a.5.5 0 0 1-.5 0C4.27 13.96 2 10.68 2 7V2.75A.75.75 0 0 1 2.75 2c1.86 0 3.65-.71 4.72-1.78Z'/%3E%3C/svg%3E"); }
   .right { text-align: right; color: var(--muted); font-size: 12px; white-space: nowrap; }
-  .add { color: var(--green); } .del { color: var(--red); }
+  .add { color: var(--green); } .add.stale { color: var(--amber); } .del { color: var(--red); }
+  /* The ✓ glyph draws smaller than the digits beside it in the monospace font. */
+  .add .check { font-size: 1.6em; line-height: 1; vertical-align: -.1em; margin-right: .2em; }
   /* Overlays the timestamp on hover so the buttons don't reserve a row of empty space. */
   .actions { position: absolute; top: 9px; right: 10px; display: flex; gap: 4px; padding: 2px; border-radius: 8px;
     background: var(--panel); opacity: 0; transition: opacity .2s; }

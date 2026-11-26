@@ -3,7 +3,7 @@ import { settingsFromStored } from "../composables/useSettings";
 import { dependabotTitle } from "./bots";
 import { allGroupIds, buildGroupTree, sortKeepingStacks } from "./grouping";
 import { matchesSearch } from "./search";
-import { isMyApprovalStale, isOwnPrAwaitingFeedback, status } from "./status";
+import { isMyApprovalStale, isOwnPrAwaitingFeedback, staleApprovers, status } from "./status";
 import type { PullRequest } from "./types";
 import { isHiddenFromList, type ListVisibility } from "./visibility";
 
@@ -11,7 +11,7 @@ function pullRequest(overrides: Partial<PullRequest> = {}): PullRequest {
   return {
     id: "PR_1", number: 1, title: "Add search tags", url: "https://github.com/acme/search/pull/1", isDraft: false, state: "OPEN",
     createdAt: "2026-11-19T08:00:00Z", updatedAt: "2026-11-20T09:00:00Z", mergedAt: null, closedAt: null,
-    additions: 10, deletions: 2, changedFiles: 1, mergeable: "MERGEABLE", reviewDecision: "REVIEW_REQUIRED",
+    additions: 10, deletions: 2, changedFiles: 1, mergeable: "MERGEABLE", mergeStateStatus: "CLEAN", reviewDecision: "REVIEW_REQUIRED",
     head: "feat/tags", base: "main", author: "anna", authorAvatar: null, repo: "acme/search", owner: "acme", isPrivate: true,
     comments: { human: 0, bot: 0 }, labels: [], assignees: [], reviewRequests: [], reviews: [],
     myReview: null, myReviewAt: null, lastCommitAt: null, checks: "SUCCESS", stack: null, relations: ["involved"],
@@ -65,6 +65,44 @@ describe("stale approvals", () => {
   it("keeps an approval that still counts", () => {
     expect(isMyApprovalStale(pullRequest({ ...approvedThenPushed, reviewDecision: "APPROVED" }))).toBe(false);
     expect(isMyApprovalStale(pullRequest({ ...approvedThenPushed, lastCommitAt: "2026-11-20T07:00:00Z" }))).toBe(false);
+  });
+});
+
+describe("stale approvers", () => {
+  // TV4/tag-manager#100: approved at 09:06, two more commits pushed afterwards, GitHub reports REVIEW_REQUIRED.
+  const approvedThenPushed = {
+    reviews: [{ login: "pelto", state: "APPROVED", submittedAt: "2026-11-26T09:06:03Z" }], lastCommitAt: "2026-11-26T11:03:59Z",
+  };
+
+  it("lists reviewers who approved before the newest commit while the PR is not approved overall", () => {
+    expect(staleApprovers(pullRequest(approvedThenPushed))).toEqual(["pelto"]);
+  });
+
+  it("lists nobody when the approval still counts or came after the newest commit", () => {
+    expect(staleApprovers(pullRequest({ ...approvedThenPushed, reviewDecision: "APPROVED" }))).toEqual([]);
+    expect(staleApprovers(pullRequest({ ...approvedThenPushed, lastCommitAt: "2026-11-26T08:00:00Z" }))).toEqual([]);
+    expect(staleApprovers(pullRequest({ ...approvedThenPushed, state: "MERGED" }))).toEqual([]);
+  });
+});
+
+describe("approved through an outdated approval", () => {
+  // TV4/search#270: approved before the last push, GitHub says REVIEW_REQUIRED but the PR is CLEAN to merge.
+  const approvedThenPushed = {
+    reviews: [{ login: "pelto", state: "APPROVED", submittedAt: "2026-11-26T10:18:39Z" }], lastCommitAt: "2026-11-26T10:52:24Z",
+  };
+
+  it("counts as Approved when GitHub says it can be merged", () => {
+    expect(status(pullRequest({ ...approvedThenPushed, mergeStateStatus: "CLEAN" }))).toBe("Approved");
+  });
+
+  it("keeps waiting when the PR is blocked, behind, or has no approval at all", () => {
+    expect(status(pullRequest({ ...approvedThenPushed, mergeStateStatus: "BLOCKED" }))).toBe("Waiting for review");
+    expect(status(pullRequest({ ...approvedThenPushed, mergeStateStatus: "BEHIND" }))).toBe("Waiting for review");
+    expect(status(pullRequest({ mergeStateStatus: "CLEAN", lastCommitAt: "2026-11-26T10:52:24Z" }))).toBe("Waiting for review");
+  });
+
+  it("still reports a conflict", () => {
+    expect(status(pullRequest({ ...approvedThenPushed, mergeStateStatus: "CLEAN", mergeable: "CONFLICTING" }))).toBe("Merge conflict");
   });
 });
 

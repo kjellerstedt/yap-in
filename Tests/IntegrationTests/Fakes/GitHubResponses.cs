@@ -30,7 +30,7 @@ internal static class GitHubResponses
     public static string PullRequest(string id, int number, string author = "anna", string reviews = "[]") => """
         {"id":"__ID__","number":__NUMBER__,"title":"Title __NUMBER__","url":"https://github.com/acme/search/pull/__NUMBER__",
          "isDraft":false,"state":"OPEN","createdAt":"2026-11-19T08:00:00Z","updatedAt":"2026-11-20T09:00:00Z",
-         "mergedAt":null,"closedAt":null,"additions":10,"deletions":2,"changedFiles":1,"mergeable":"MERGEABLE",
+         "mergedAt":null,"closedAt":null,"additions":10,"deletions":2,"changedFiles":1,"mergeable":"MERGEABLE","mergeStateStatus":"CLEAN",
          "reviewDecision":"REVIEW_REQUIRED","headRefName":"feat/x","baseRefName":"main",
          "author":{"login":"__AUTHOR__","avatarUrl":"https://avatars.example/u"},
          "repository":{"nameWithOwner":"acme/search","name":"search","owner":{"login":"acme"},"isPrivate":true},

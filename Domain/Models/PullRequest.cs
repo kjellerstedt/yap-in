@@ -27,7 +27,7 @@ public enum PullRequestRelation
     Involved,
 }
 
-// GitHub's own enum values (mergeable, review decision, review state, check rollup) pass through as text: the inbox
+// GitHub's own enum values (mergeable, merge state status, review decision, review state, check rollup) pass through as text: the inbox
 // only compares them, and GitHub adds values over time.
 public sealed record PullRequest(
     string Id,
@@ -43,6 +43,7 @@ public sealed record PullRequest(
     int Deletions,
     int ChangedFiles,
     string Mergeable,
+    string MergeStateStatus,
     string? ReviewDecision,
     string Head,
     string Base,
