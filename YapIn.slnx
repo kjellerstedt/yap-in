@@ -1,0 +1,10 @@
+<Solution>
+  <Project Path="API/YapIn.Api.csproj" />
+  <Project Path="Domain/YapIn.Domain.csproj" />
+  <Project Path="Web/YapIn.Web.csproj" />
+  <Project Path="Infrastructure/YapIn.Infrastructure.csproj" />
+  <Folder Name="/Tests/">
+    <Project Path="Tests/ContractTests/YapIn.ContractTests.csproj" />
+    <Project Path="Tests/IntegrationTests/YapIn.IntegrationTests.csproj" />
+  </Folder>
+</Solution>

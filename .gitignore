@@ -1,0 +1,7 @@
+node_modules/
+bin/
+obj/
+frontend/dist/
+Web/wwwroot/
+.DS_Store
+TestResults/

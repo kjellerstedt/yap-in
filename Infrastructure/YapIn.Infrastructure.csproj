@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <ProjectReference Include="..\Domain\YapIn.Domain.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="YapIn.Web" />
+    <InternalsVisibleTo Include="YapIn.IntegrationTests" />
+    <InternalsVisibleTo Include="YapIn.ContractTests" />
+  </ItemGroup>
+</Project>
