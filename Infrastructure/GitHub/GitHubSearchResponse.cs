@@ -43,6 +43,16 @@ internal sealed record PullRequestNode(
     StackNode? Stack,
     StackEntryNode? StackEntry);
 
+internal sealed record PullRequestNodesEnvelope(PullRequestNodesData? Data);
+
+internal sealed record PullRequestNodesData(IReadOnlyList<PullRequestNode?> Nodes);
+
+internal sealed record PullRequestsByAliasEnvelope(Dictionary<string, PullRequestNode?>? Data);
+
+internal sealed record NotificationNode(string? Id, [property: JsonPropertyName("updated_at")] string? UpdatedAt, NotificationSubject? Subject);
+
+internal sealed record NotificationSubject(string? Type, string? Url);
+
 internal sealed record MergeStateEnvelope(MergeStateData? Data);
 
 internal sealed record MergeStateData(IReadOnlyList<MergeStateNode?> Nodes);

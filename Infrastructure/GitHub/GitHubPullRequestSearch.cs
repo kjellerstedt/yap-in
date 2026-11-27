@@ -10,14 +10,13 @@ using YapIn.Infrastructure.Processes;
 namespace YapIn.Infrastructure.GitHub;
 
 /// <summary>GitHub's search through `gh api graphql`, so the server never holds a token.</summary>
-internal sealed partial class GitHubPullRequestSearch(IProcessRunner processRunner, TimeProvider timeProvider) : IPullRequestSearch
+internal sealed partial class GitHubPullRequestSearch(IProcessRunner processRunner, TimeProvider timeProvider, GitHubViewer gitHubViewer) : IPullRequestSearch
 {
     private const int MaxPages = 3; // 100 pull requests per page per search
-    // GitHub works out merge state per pull request on request, which makes it the costly field: in the search it made
-    // a 38-pull-request result time out (HTTP 502). Ten per lookup took about 2 seconds.
-    private const int MergeStateLookupBatchSize = 10;
+    // Pull requests asked for by id or address, and merge states, go ten at a time. GitHub works out merge state per pull
+    // request on request, which makes it the costly field: in the search it made a 38-pull-request result time out (HTTP 502).
+    private const int LookupBatchSize = 10;
     private const string UnknownMergeStateStatus = "UNKNOWN"; // until WithMergeStateStatusAsync looks it up
-    private static readonly TimeSpan GhTimeout = TimeSpan.FromSeconds(60);
     // The open view also shows pull requests merged within this window, so a just-merged one doesn't vanish.
     private static readonly TimeSpan RecentlyMergedWindow = TimeSpan.FromHours(12);
 
@@ -50,17 +49,21 @@ internal sealed partial class GitHubPullRequestSearch(IProcessRunner processRunn
         }
         """;
 
+    private const string ByIdQuery = $$"""
+        query($ids: [ID!]!) {
+          nodes(ids: $ids) { {{PullRequestFields}} }
+        }
+        """;
+
     private const string MergeStateQuery = """
         query($ids: [ID!]!) {
           nodes(ids: $ids) { ... on PullRequest { id mergeStateStatus } }
         }
         """;
 
-    private GitHubLogin? viewer;
-
     public async Task<Inbox> BuildInboxAsync(InboxQuery query, CancellationToken cancellationToken)
     {
-        viewer ??= await ViewerAsync(cancellationToken);
+        var viewer = await gitHubViewer.GetAsync(cancellationToken);
         var searches = SearchScopes(query).SelectMany(RelationSearches).ToList();
         var results = await Task.WhenAll(searches.Select(async search =>
             (search.Relation, Nodes: await SearchAsync(search.Query, cancellationToken))));
@@ -101,7 +104,7 @@ internal sealed partial class GitHubPullRequestSearch(IProcessRunner processRunn
         var lookupIds = pullRequests.Where(CouldBeMergeableWithOutdatedApproval).Select(pullRequest => pullRequest.Id).ToList();
         if (lookupIds.Count == 0) return pullRequests;
 
-        var batches = await Task.WhenAll(lookupIds.Chunk(MergeStateLookupBatchSize).Select(ids => MergeStateStatusesAsync(ids, cancellationToken)));
+        var batches = await Task.WhenAll(lookupIds.Chunk(LookupBatchSize).Select(ids => MergeStateStatusesAsync(ids, cancellationToken)));
         var mergeStateStatusById = batches.SelectMany(batch => batch).ToDictionary(found => found.Id, found => found.MergeStateStatus);
         return pullRequests
             .Select(pullRequest => mergeStateStatusById.TryGetValue(pullRequest.Id, out var mergeStateStatus)
@@ -122,6 +125,70 @@ internal sealed partial class GitHubPullRequestSearch(IProcessRunner processRunn
             .Where(node => node.Id is not null && node.MergeStateStatus is not null)
             .Select(node => (node.Id!, node.MergeStateStatus!))
             .ToList();
+    }
+
+    public async Task<IReadOnlyList<PullRequest>> RefreshPullRequestsAsync(IReadOnlyList<PullRequest> pullRequests, CancellationToken cancellationToken)
+    {
+        if (pullRequests.Count == 0) return [];
+        var viewer = await gitHubViewer.GetAsync(cancellationToken);
+        var relationsById = pullRequests.ToDictionary(pullRequest => pullRequest.Id, pullRequest => pullRequest.Relations);
+        var batches = await Task.WhenAll(pullRequests.Select(pullRequest => pullRequest.Id).Chunk(LookupBatchSize)
+            .Select(ids => PullRequestsByIdAsync(ids, cancellationToken)));
+        var refreshed = batches.SelectMany(batch => batch)
+            .Where(node => node.Id is not null && relationsById.ContainsKey(node.Id))
+            .Select(node => ToPullRequest(node, viewer, relationsById[node.Id!]))
+            .OfType<PullRequest>()
+            .ToList();
+        return await WithMergeStateStatusAsync(refreshed, cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<PullRequest>> FetchPullRequestsAsync(IReadOnlyList<PullRequestUrl> urls, CancellationToken cancellationToken)
+    {
+        if (urls.Count == 0) return [];
+        var viewer = await gitHubViewer.GetAsync(cancellationToken);
+        var batches = await Task.WhenAll(urls.Chunk(LookupBatchSize).Select(batch => PullRequestsByUrlAsync(batch, cancellationToken)));
+        var fetched = batches.SelectMany(batch => batch)
+            .Select(node => ToPullRequest(node, viewer, RelationsFrom(node, viewer)))
+            .OfType<PullRequest>()
+            .ToList();
+        return await WithMergeStateStatusAsync(fetched, cancellationToken);
+    }
+
+    private async Task<List<PullRequestNode>> PullRequestsByIdAsync(string[] ids, CancellationToken cancellationToken)
+    {
+        List<string> arguments = ["api", "graphql", "-f", $"query={ByIdQuery}"];
+        foreach (var id in ids) arguments.AddRange(["-f", $"ids[]={id}"]);
+        var output = await RunGhAsync(arguments, cancellationToken);
+        var nodes = JsonSerializer.Deserialize(output, InfrastructureJsonContext.Default.PullRequestNodesEnvelope)?.Data?.Nodes
+            ?? throw new ExternalToolFailedException("gh", "returned no pull requests");
+        return nodes.OfType<PullRequestNode>().ToList();
+    }
+
+    // The addresses go in as variables, one alias each, so none of their text is part of the query.
+    private async Task<List<PullRequestNode>> PullRequestsByUrlAsync(PullRequestUrl[] urls, CancellationToken cancellationToken)
+    {
+        var variables = string.Join(", ", urls.Select((_, index) => $"$url{index}: URI!"));
+        var lookups = string.Join(" ", urls.Select((_, index) => $"pr{index}: resource(url: $url{index}) {{ {PullRequestFields} }}"));
+        List<string> arguments = ["api", "graphql", "-f", $"query=query({variables}) {{ {lookups} }}"];
+        for (var index = 0; index < urls.Length; index++) arguments.AddRange(["-f", $"url{index}={urls[index].Value}"]);
+        var output = await RunGhAsync(arguments, cancellationToken);
+        var data = JsonSerializer.Deserialize(output, InfrastructureJsonContext.Default.PullRequestsByAliasEnvelope)?.Data
+            ?? throw new ExternalToolFailedException("gh", "returned no pull requests");
+        return data.Values.OfType<PullRequestNode>().ToList();
+    }
+
+    // What the searches would have said, as far as the pull request itself shows it. A team asked to review may be one
+    // you are not in, and a mention leaves no trace on the pull request, so neither is exact.
+    private static List<PullRequestRelation> RelationsFrom(PullRequestNode node, GitHubLogin viewer)
+    {
+        var relations = new List<PullRequestRelation>();
+        var requestedReviewers = (node.ReviewRequests?.Nodes ?? []).Select(request => request?.RequestedReviewer).OfType<RequestedReviewerNode>().ToList();
+        if (node.Author?.Login == viewer.Value) relations.Add(PullRequestRelation.Authored);
+        if (requestedReviewers.Any(reviewer => reviewer.TypeName == "User" && reviewer.Login == viewer.Value)) relations.Add(PullRequestRelation.ReviewRequestedFromYou);
+        else if (requestedReviewers.Any(reviewer => reviewer.TypeName == "Team")) relations.Add(PullRequestRelation.ReviewRequestedFromTeam);
+        if (node.Author?.Login != viewer.Value && (node.LatestReviews?.Nodes ?? []).Any(review => review?.Author?.Login == viewer.Value)) relations.Add(PullRequestRelation.Reviewed);
+        if ((node.Assignees?.Nodes ?? []).Any(assignee => assignee?.Login == viewer.Value)) relations.Add(PullRequestRelation.Assigned);
+        return relations.Count > 0 ? relations : [PullRequestRelation.Involved];
     }
 
     private IEnumerable<string> SearchScopes(InboxQuery query)
@@ -166,17 +233,8 @@ internal sealed partial class GitHubPullRequestSearch(IProcessRunner processRunn
         return nodes;
     }
 
-    private async Task<GitHubLogin> ViewerAsync(CancellationToken cancellationToken)
-    {
-        var login = (await RunGhAsync(["api", "user", "--jq", ".login"], cancellationToken)).Trim();
-        return GitHubLogin.IsValid(login) ? new GitHubLogin(login) : throw new ExternalToolFailedException("gh", "returned no valid login");
-    }
-
-    private async Task<string> RunGhAsync(IReadOnlyList<string> arguments, CancellationToken cancellationToken)
-    {
-        var result = await processRunner.RunAsync(new ProcessRequest("gh", arguments, GhTimeout), cancellationToken);
-        return result.Succeeded ? result.StandardOutput : throw new ExternalToolFailedException("gh", $"exited with {result.ExitCode}", result.StandardError);
-    }
+    private Task<string> RunGhAsync(IReadOnlyList<string> arguments, CancellationToken cancellationToken) =>
+        GhCli.OutputAsync(processRunner, arguments, cancellationToken);
 
     /// <returns><c>null</c> for a search hit that is not a usable pull request.</returns>
     private static PullRequest? ToPullRequest(PullRequestNode node, GitHubLogin viewer, IReadOnlyList<PullRequestRelation> relations)

@@ -1,8 +1,9 @@
 import { onBeforeUnmount, ref } from "vue";
 import type { InboxView } from "../inbox/types";
 
-// Matches the server's background refresh; polling only re-reads its cache.
-const POLL_INTERVAL_MS = 60_000;
+// Polling only re-reads the server's cache (about 50 KB from the same machine), so it can be quick: a change the
+// server has noticed reaches the page within this long.
+const POLL_INTERVAL_MS = 15_000;
 
 async function errorMessage(response: Response): Promise<string> {
   try {
@@ -39,7 +40,15 @@ export function useInbox(onLoaded: (inbox: InboxView) => void) {
   const pollTimer = setInterval(() => {
     if (document.visibilityState === "visible") void load();
   }, POLL_INTERVAL_MS);
-  onBeforeUnmount(() => clearInterval(pollTimer));
+  // A tab that was hidden has been skipping polls, so catch up as soon as it is looked at again.
+  function loadWhenVisible(): void {
+    if (document.visibilityState === "visible") void load();
+  }
+  document.addEventListener("visibilitychange", loadWhenVisible);
+  onBeforeUnmount(() => {
+    clearInterval(pollTimer);
+    document.removeEventListener("visibilitychange", loadWhenVisible);
+  });
 
   return { inbox, isLoading, loadError, load };
 }

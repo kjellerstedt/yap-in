@@ -53,6 +53,9 @@ internal sealed class Fixture : IAsyncDisposable
     public string DiffoWorktreesDirectory => Path.Combine(ReposDirectory, ".diffo", "worktrees");
     public Driver Driver { get; }
 
+    /// <summary>The background refresh as the host would build it; tests run its passes by hand, after moving <see cref="Clock"/>.</summary>
+    public InboxRefreshService CreateRefreshService() => ActivatorUtilities.CreateInstance<InboxRefreshService>(services);
+
     /// <summary>A clone of <paramref name="repositoryName"/> under the stand-in for ~/repos.</summary>
     public string AddClone(string repositoryName)
     {

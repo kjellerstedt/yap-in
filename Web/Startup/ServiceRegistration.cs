@@ -21,7 +21,9 @@ internal static class ServiceRegistration
 
         services.AddSingleton(TimeProvider.System);
         services.AddSingleton<IProcessRunner, SystemProcessRunner>();
+        services.AddSingleton<GitHubViewer>();
         services.AddSingleton<IPullRequestSearch, GitHubPullRequestSearch>();
+        services.AddSingleton<IGitHubActivity, GitHubActivity>();
         services.AddSingleton<ILocalCheckouts, LocalCheckouts>();
         services.AddSingleton<IInboxService, InboxService>();
         return services;

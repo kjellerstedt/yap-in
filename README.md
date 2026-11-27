@@ -14,7 +14,7 @@ The .NET 10 server follows the narrow integration testing reference layout:
 | --- | --- | --- |
 | `API` | `YapIn.Api` | Response contracts: the JSON the page reads |
 | `Web` | `YapIn.Web` | HTTP endpoints, the localhost guard, background refresh, and the composition root: `Program.cs` and `Startup/` (what each interface is, and setup); serves the built page from `wwwroot` |
-| `Domain` | `YapIn.Domain` | Checked types (`PullRequestUrl`, `LookbackDays`…), models, the inbox cache and review orchestration, and the roles it needs (one file each in `Interfaces/`): `IPullRequestSearch`, `ICodeReviewTool`, `IAgentSessionHost`, `ILocalCheckouts` |
+| `Domain` | `YapIn.Domain` | Checked types (`PullRequestUrl`, `LookbackDays`…), models, the inbox cache and review orchestration, and the roles it needs (one file each in `Interfaces/`): `IPullRequestSearch`, `IGitHubActivity`, `ICodeReviewTool`, `IAgentSessionHost`, `ILocalCheckouts` |
 | `Infrastructure` | `YapIn.Infrastructure` | GitHub search, local checkouts and `Adapters/` (one folder per external tool), all through the `IProcessRunner` seam |
 | `Tests/IntegrationTests` | `YapIn.IntegrationTests` | Narrow integration tests: the real registrations and adapters, with a fake process runner and clock |
 | `Tests/ContractTests` | `YapIn.ContractTests` | Contract tests: the real orca, gh, diffo and AppleScript compiler, read-only; skipped with a reason when a tool is missing |
@@ -24,8 +24,10 @@ The .NET 10 server follows the narrow integration testing reference layout:
 Dependencies point inward: `Web → API, Domain, Infrastructure`; `Infrastructure → Domain`. Only `Web/Startup` registers
 services, so Domain and Infrastructure hold no DI code.
 
-GitHub is searched through `gh api graphql`, so the server holds no token. Each view is kept warm with a one-minute
-refresh. With diffo chosen, a review starts diffo, then an agent session in the session host you chose in setup.
+GitHub is searched through `gh api graphql`, so the server holds no token. Each view is kept warm: every minute the server asks
+GitHub's activity feeds whether anything happened (your own actions and your notifications, both answered with an empty 304
+when nothing did) and, if so, fetches the open pull requests again by id; a full search runs every five minutes. The page re-reads
+the server's cache every 15 seconds. With diffo chosen, a review starts diffo, then an agent session in the session host you chose in setup.
 
 ### External tools
 

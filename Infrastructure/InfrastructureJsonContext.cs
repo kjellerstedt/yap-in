@@ -9,5 +9,8 @@ namespace YapIn.Infrastructure;
 [JsonSourceGenerationOptions(JsonSerializerDefaults.Web)]
 [JsonSerializable(typeof(SearchEnvelope))]
 [JsonSerializable(typeof(MergeStateEnvelope))]
+[JsonSerializable(typeof(PullRequestNodesEnvelope))]
+[JsonSerializable(typeof(PullRequestsByAliasEnvelope))]
+[JsonSerializable(typeof(List<NotificationNode>))]
 [JsonSerializable(typeof(OrcaWorkspaceList))]
 internal sealed partial class InfrastructureJsonContext : JsonSerializerContext;
