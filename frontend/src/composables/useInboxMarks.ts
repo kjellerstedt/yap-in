@@ -36,8 +36,10 @@ export function useInboxMarks() {
     saveDone();
   }
 
+  // An approval of yours means you have looked at it, whether or not you cleared the flag.
   function isNew(pr: PullRequest, viewer: string): boolean {
-    return seenAtById.value !== null && seenAtById.value[pr.id] === undefined && pr.author !== viewer && pr.state !== "MERGED";
+    return seenAtById.value !== null && seenAtById.value[pr.id] === undefined && pr.author !== viewer && pr.state !== "MERGED" &&
+      pr.myReview !== "APPROVED";
   }
 
   function markSeen(prId: string): void {
