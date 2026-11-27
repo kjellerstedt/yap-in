@@ -29,7 +29,6 @@ internal sealed record PullRequestNode(
     int Deletions,
     int ChangedFiles,
     string? Mergeable,
-    string? MergeStateStatus,
     string? ReviewDecision,
     string? HeadRefName,
     string? BaseRefName,
@@ -43,6 +42,12 @@ internal sealed record PullRequestNode(
     NodeList<CommitNode>? Commits,
     StackNode? Stack,
     StackEntryNode? StackEntry);
+
+internal sealed record MergeStateEnvelope(MergeStateData? Data);
+
+internal sealed record MergeStateData(IReadOnlyList<MergeStateNode?> Nodes);
+
+internal sealed record MergeStateNode(string? Id, string? MergeStateStatus);
 
 internal sealed record NodeList<T>(IReadOnlyList<T?> Nodes);
 

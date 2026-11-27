@@ -8,5 +8,6 @@ namespace YapIn.Infrastructure;
 // Reflection-based serialisation is off (see Directory.Build.props), so every type read from a program is listed here.
 [JsonSourceGenerationOptions(JsonSerializerDefaults.Web)]
 [JsonSerializable(typeof(SearchEnvelope))]
+[JsonSerializable(typeof(MergeStateEnvelope))]
 [JsonSerializable(typeof(OrcaWorkspaceList))]
 internal sealed partial class InfrastructureJsonContext : JsonSerializerContext;

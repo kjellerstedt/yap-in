@@ -134,6 +134,75 @@ public sealed class ListInboxTests
         Assert.Contains("Is gh signed in?", error, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public async Task Looks_up_merge_state_only_for_open_pull_requests_that_could_be_mergeable_with_an_outdated_approval()
+    {
+        // Arrange
+        await using var fixture = new Fixture();
+        var approval = GitHubResponses.ApprovedBy("pelto", "2026-11-20T08:01:49Z");
+        fixture.Programs.Respond = GitHubResponses.Answering(searchQuery => searchQuery switch
+        {
+            _ when searchQuery.Contains("is:open", StringComparison.Ordinal) == false => [],
+            _ when searchQuery.EndsWith(" author:@me", StringComparison.Ordinal) =>
+            [
+                GitHubResponses.PullRequest("CANDIDATE", 1, reviews: approval),
+                GitHubResponses.PullRequest("NOT_REVIEWED", 2),
+                GitHubResponses.PullRequest("ALREADY_APPROVED", 3, reviews: approval, reviewDecision: "APPROVED"),
+                GitHubResponses.PullRequest("DRAFT", 4, reviews: approval, isDraft: true),
+                GitHubResponses.PullRequest("CONFLICTING", 5, reviews: approval, mergeable: "CONFLICTING"),
+            ],
+            _ => [],
+        });
+
+        // Act
+        var result = await fixture.Driver.ListInboxAsync(state: "open");
+
+        // Assert
+        Assert.Equal(["CANDIDATE"], MergeStateLookupIds(fixture));
+        var mergeStateStatusById = AssertOk<InboxResponse>(result).Prs.ToDictionary(pr => pr.Id, pr => pr.MergeStateStatus);
+        Assert.Equal("CLEAN", mergeStateStatusById["CANDIDATE"]);
+        Assert.All(mergeStateStatusById.Where(entry => entry.Key != "CANDIDATE"), entry => Assert.Equal("UNKNOWN", entry.Value));
+    }
+
+    [Fact]
+    public async Task Looks_up_merge_state_ten_pull_requests_at_a_time_and_not_at_all_when_none_could_need_it()
+    {
+        // Arrange
+        await using var fixture = new Fixture();
+        var approval = GitHubResponses.ApprovedBy("pelto", "2026-11-20T08:01:49Z");
+        var searchHits = Enumerable.Range(1, 25).Select(number => GitHubResponses.PullRequest($"PR{number}", number, reviews: approval)).ToArray();
+        fixture.Programs.Respond = GitHubResponses.Answering(searchQuery =>
+            searchQuery.Contains("is:open", StringComparison.Ordinal) && searchQuery.EndsWith(" author:@me", StringComparison.Ordinal) ? searchHits : []);
+
+        // Act
+        await fixture.Driver.ListInboxAsync(state: "open");
+
+        // Assert
+        var lookups = fixture.Programs.RequestsTo("gh").Select(GitHubResponses.IdsAskedFor).Where(ids => ids.Count > 0).ToList();
+        Assert.Equal([5, 10, 10], lookups.Select(ids => ids.Count).Order());
+        Assert.Equal(25, lookups.SelectMany(ids => ids).Distinct().Count());
+    }
+
+    [Fact]
+    public async Task Does_not_ask_for_merge_state_when_no_pull_request_could_need_it()
+    {
+        // Arrange
+        await using var fixture = new Fixture();
+        fixture.Programs.Respond = GitHubResponses.Answering(searchQuery =>
+            searchQuery.Contains("is:open", StringComparison.Ordinal) ? [GitHubResponses.PullRequest("A", 1)] : []);
+
+        // Act
+        await fixture.Driver.ListInboxAsync(state: "open");
+
+        // Assert
+        Assert.Empty(MergeStateLookupIds(fixture));
+        Assert.DoesNotContain(fixture.Programs.RequestsTo("gh").SelectMany(request => request.Arguments),
+            argument => argument.Contains("mergeStateStatus", StringComparison.Ordinal) && argument.Contains("search(", StringComparison.Ordinal));
+    }
+
+    private static List<string> MergeStateLookupIds(Fixture fixture) =>
+        fixture.Programs.RequestsTo("gh").SelectMany(GitHubResponses.IdsAskedFor).ToList();
+
     private static List<string> SearchQueries(Fixture fixture) =>
         fixture.Programs.RequestsTo("gh")
             .SelectMany(request => request.Arguments)

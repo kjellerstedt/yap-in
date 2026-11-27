@@ -13,6 +13,10 @@ namespace YapIn.Infrastructure.GitHub;
 internal sealed partial class GitHubPullRequestSearch(IProcessRunner processRunner, TimeProvider timeProvider) : IPullRequestSearch
 {
     private const int MaxPages = 3; // 100 pull requests per page per search
+    // GitHub works out merge state per pull request on request, which makes it the costly field: in the search it made
+    // a 38-pull-request result time out (HTTP 502). Ten per lookup took about 2 seconds.
+    private const int MergeStateLookupBatchSize = 10;
+    private const string UnknownMergeStateStatus = "UNKNOWN"; // until WithMergeStateStatusAsync looks it up
     private static readonly TimeSpan GhTimeout = TimeSpan.FromSeconds(60);
     // The open view also shows pull requests merged within this window, so a just-merged one doesn't vanish.
     private static readonly TimeSpan RecentlyMergedWindow = TimeSpan.FromHours(12);
@@ -20,7 +24,7 @@ internal sealed partial class GitHubPullRequestSearch(IProcessRunner processRunn
     private const string PullRequestFields = """
         ... on PullRequest {
           id number title url isDraft state createdAt updatedAt mergedAt closedAt
-          additions deletions changedFiles mergeable mergeStateStatus reviewDecision
+          additions deletions changedFiles mergeable reviewDecision
           headRefName baseRefName
           author { login avatarUrl }
           repository { nameWithOwner name owner { login } isPrivate }
@@ -43,6 +47,12 @@ internal sealed partial class GitHubPullRequestSearch(IProcessRunner processRunn
             pageInfo { hasNextPage endCursor }
             nodes { {{PullRequestFields}} }
           }
+        }
+        """;
+
+    private const string MergeStateQuery = """
+        query($ids: [ID!]!) {
+          nodes(ids: $ids) { ... on PullRequest { id mergeStateStatus } }
         }
         """;
 
@@ -75,7 +85,43 @@ internal sealed partial class GitHubPullRequestSearch(IProcessRunner processRunn
             .Select(entry => ToPullRequest(entry.Node, viewer, entry.Relations.Count > 0 ? entry.Relations : [PullRequestRelation.Involved]))
             .OfType<PullRequest>()
             .ToList();
-        return new Inbox(viewer, timeProvider.GetUtcNow(), pullRequests);
+        return new Inbox(viewer, timeProvider.GetUtcNow(), await WithMergeStateStatusAsync(pullRequests, cancellationToken));
+    }
+
+    // The inbox only reads merge state to recognise an outdated approval that GitHub still lets through (status.ts,
+    // isMergeableWithOutdatedApproval). Looser than that rule on purpose: it skips the comparison of approval and commit
+    // times, so the staleness rule lives in one place and a few extra lookups are the cost.
+    private static bool CouldBeMergeableWithOutdatedApproval(PullRequest pullRequest) =>
+        pullRequest is { State: PullRequestState.Open, IsDraft: false, ReviewDecision: "REVIEW_REQUIRED" } &&
+        pullRequest.Mergeable != "CONFLICTING" &&
+        pullRequest.Reviews.Any(review => review.State == "APPROVED");
+
+    private async Task<List<PullRequest>> WithMergeStateStatusAsync(List<PullRequest> pullRequests, CancellationToken cancellationToken)
+    {
+        var lookupIds = pullRequests.Where(CouldBeMergeableWithOutdatedApproval).Select(pullRequest => pullRequest.Id).ToList();
+        if (lookupIds.Count == 0) return pullRequests;
+
+        var batches = await Task.WhenAll(lookupIds.Chunk(MergeStateLookupBatchSize).Select(ids => MergeStateStatusesAsync(ids, cancellationToken)));
+        var mergeStateStatusById = batches.SelectMany(batch => batch).ToDictionary(found => found.Id, found => found.MergeStateStatus);
+        return pullRequests
+            .Select(pullRequest => mergeStateStatusById.TryGetValue(pullRequest.Id, out var mergeStateStatus)
+                ? pullRequest with { MergeStateStatus = mergeStateStatus }
+                : pullRequest)
+            .ToList();
+    }
+
+    private async Task<List<(string Id, string MergeStateStatus)>> MergeStateStatusesAsync(string[] ids, CancellationToken cancellationToken)
+    {
+        List<string> arguments = ["api", "graphql", "-f", $"query={MergeStateQuery}"];
+        foreach (var id in ids) arguments.AddRange(["-f", $"ids[]={id}"]);
+        var output = await RunGhAsync(arguments, cancellationToken);
+        var nodes = JsonSerializer.Deserialize(output, InfrastructureJsonContext.Default.MergeStateEnvelope)?.Data?.Nodes
+            ?? throw new ExternalToolFailedException("gh", "returned no merge state");
+        return nodes
+            .OfType<MergeStateNode>()
+            .Where(node => node.Id is not null && node.MergeStateStatus is not null)
+            .Select(node => (node.Id!, node.MergeStateStatus!))
+            .ToList();
     }
 
     private IEnumerable<string> SearchScopes(InboxQuery query)
@@ -160,7 +206,7 @@ internal sealed partial class GitHubPullRequestSearch(IProcessRunner processRunn
             Deletions: node.Deletions,
             ChangedFiles: node.ChangedFiles,
             Mergeable: node.Mergeable ?? "UNKNOWN",
-            MergeStateStatus: node.MergeStateStatus ?? "UNKNOWN",
+            MergeStateStatus: UnknownMergeStateStatus,
             ReviewDecision: node.ReviewDecision,
             Head: node.HeadRefName ?? "",
             Base: node.BaseRefName ?? "",
