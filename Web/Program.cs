@@ -6,6 +6,8 @@ using YapIn.Web.Startup;
 
 var builder = WebApplication.CreateSlimBuilder(args);
 builder.WebHost.UseUrls(builder.Configuration["Urls"] ?? "http://127.0.0.1:4477");
+// ASP.NET Core's information logs repeat every request, static files included; ApiRequestLog logs the /api ones.
+builder.Logging.AddFilter("Microsoft.AspNetCore", LogLevel.Warning);
 builder.Services.ConfigureHttpJsonOptions(options => options.SerializerOptions.TypeInfoResolverChain.Insert(0, ApiJsonContext.Default));
 
 ToolChoices toolChoices;
@@ -29,6 +31,7 @@ builder.Services
 if (toolChoices.StartsAgentSessions) builder.Services.AddTransient<StartReviewEndpoint>();
 
 var app = builder.Build();
+app.UseMiddleware<ApiRequestLog>();
 app.UseMiddleware<LocalhostOnly>();
 app.UseDefaultFiles();
 app.UseStaticFiles();

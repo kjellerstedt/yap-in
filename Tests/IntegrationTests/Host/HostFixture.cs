@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 using YapIn.Infrastructure.Processes;
 using YapIn.Tests.Shared;
 
@@ -17,6 +18,7 @@ namespace YapIn.IntegrationTests.Host;
 internal sealed class HostFixture(string reviewTool = "diffo") : WebApplicationFactory<Program>
 {
     public FakeProcessRunner Programs { get; } = new();
+    public LogCollector Logs { get; } = new();
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
@@ -27,6 +29,7 @@ internal sealed class HostFixture(string reviewTool = "diffo") : WebApplicationF
         {
             services.Replace(ServiceDescriptor.Singleton<IProcessRunner>(Programs));
             services.RemoveAll<IHostedService>();
+            services.AddLogging(logging => logging.AddProvider(Logs));
         });
     }
 
